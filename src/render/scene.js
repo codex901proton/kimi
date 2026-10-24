@@ -3,12 +3,12 @@ import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
 import { fileURLToPath } from 'node:url';
 import { Camera } from './camera.js';
 import { makeVignette, makeGrain, makeKeyTextures } from './textures.js';
-import { makeSalon, makeOverlay, makeCards, drawTitleCard, drawEndCard, drawIris, drawSectionTitle, drawPedalLyre } from './titles.js';
+import { makeSalon, makeOverlay, makeCards, drawEndCard, drawIris, drawSectionTitle, drawOpeningTitle, drawPedalLyre } from './titles.js';
 import { drawKeys, drawKeySlipAndCheeks, HAND_COL } from './keysdraw.js';
 import { drawLanes, drawNotes, visibleLength, hwPoint } from './notesdraw.js';
 import { drawImpacts, drawEmbers, drawFlyingGlyphs, drawRays, drawFlash, drawFilm } from './fx.js';
 import { makeHandAnimator, keyDepthFrom } from './handanim.js';
-import { drawHand, drawHandShadow } from './handdraw.js';
+import { HandRenderer, drawHandShadow, drawContactShadows } from './handmesh.js';
 import { pedalAt } from '../pedal.js';
 import { keyX, KEYBOARD_W } from '../keyboard.js';
 import { barBeat } from '../score.js';
@@ -23,7 +23,7 @@ export function registerFonts() {
   ]) GlobalFonts.registerFromPath(FONT_DIR + f, fam);
 }
 
-const W = 1080, H = 1920, KEY_Y = 1250;
+const W = 1080, H = 1920, KEY_Y = 1470;
 const CAM_DT = 1 / 30;
 
 function gaussianSmooth(arr, sigmaSamples) {
@@ -76,9 +76,9 @@ export function createScene(perf) {
       const x = keyX(notesByOn[j].midi);
       if (x < lo) lo = x; if (x > hi) hi = x;
     }
-    for (const h of ['L', 'R']) { const p = anim[h].pose(t); if (p.enter > 0.5 && p.leave < 0.5) { lo = Math.min(lo, p.x - 70); hi = Math.max(hi, p.x + 70); } }
-    if (lo < hi) { pc = (lo + hi) / 2; pw = hi - lo + 170; }
-    cx[i] = pc; wd[i] = Math.log(clamp(pw, 520, 1330));
+    for (const h of ['L', 'R']) { const p = anim[h].pose(t); if (p.alpha > 0.5) { lo = Math.min(lo, p.x - 115); hi = Math.max(hi, p.x + 115); } }
+    if (lo < hi) { pc = (lo + hi) / 2; pw = hi - lo + 120; }
+    cx[i] = pc; wd[i] = Math.log(clamp(pw, 420, 1000));
     const bpm = tm.bpm(tm.timeToBeat(t));
     look[i] = clamp((3.4 * 60) / bpm, 1.75, 3.3);
     let e = 0;
@@ -96,6 +96,7 @@ export function createScene(perf) {
   const sample = (arr, t) => { const x = clamp(t / CAM_DT, 0, nS - 1); const i = Math.floor(x); const f = x - i; return arr[i] + (arr[Math.min(nS - 1, i + 1)] - arr[i]) * f; };
 
   const cam = new Camera({ width: W, height: H, focal: 1500, cx: W / 2, cy: KEY_Y });
+  const handR = new HandRenderer();
   const tex = makeKeyTextures();
   const plates = { vignette: makeVignette(W, H), grain: makeGrain(W / 2, H / 2, 6) };
   const salon = makeSalon(W, H, KEY_Y);
@@ -113,14 +114,14 @@ export function createScene(perf) {
 
   function setCamera(t) {
     let x = sample(camX, t), w = sample(camW, t);
-    let pitch = (50 - 4 * sample(camE, t)) * Math.PI / 180;
-    // establishing shot: descend from high above during the title
-    const intro = minjerk((t - 1.2) / (INTRO - 0.4));
-    pitch = lerp(66 * Math.PI / 180, pitch, intro);
-    w = lerp(1500, w, intro);
+    let pitch = (62 - 3 * sample(camE, t)) * Math.PI / 180;
+    // establishing move: settle down onto the hands as they rise into place
+    const intro = minjerk(t / (INTRO + 0.6));
+    pitch = lerp(68 * Math.PI / 180, pitch, intro);
+    w = lerp(w * 1.25, w, intro);
     // closing: drift back and up as the last chord dies away
-    const out = minjerk((t - (perf.musicEnd - 4)) / 6);
-    w = lerp(w, 1450, out); x = lerp(x, KEYBOARD_W / 2, out); pitch = lerp(pitch, 58 * Math.PI / 180, out);
+    const out = minjerk((t - (perf.musicEnd - 3)) / 4);
+    w = lerp(w, w * 1.3, out); pitch = lerp(pitch, 66 * Math.PI / 180, out);
     x = clamp(x, w / 2 - 80, KEYBOARD_W - w / 2 + 80);
     if (w > KEYBOARD_W + 100) x = KEYBOARD_W / 2;
     let shake = 0;
@@ -128,7 +129,7 @@ export function createScene(perf) {
     const sx = 3.2 * shake * noise1(t * 38, 1), sz = 2.4 * shake * noise1(t * 41, 2);
     x += 2.5 * noise1(t * 0.13, 40);
     const dist = (w * cam.focal) / W;
-    cam.set([x + sx, 62, sz], dist, pitch, 0.012 * noise1(t * 0.09, 41), 0.004 * shake * noise1(t * 30, 3));
+    cam.set([x + sx, 10, sz], dist, pitch, 0.012 * noise1(t * 0.09, 41), 0.004 * shake * noise1(t * 30, 3));
     return { shake };
   }
 
@@ -175,35 +176,35 @@ export function createScene(perf) {
     sctx.fillStyle = 'rgba(0,0,0,1)';
     drawHandShadow(sctx, cam, sk.L, 0.5); drawHandShadow(sctx, cam, sk.R, 0.5);
     ctx.save();
-    ctx.globalAlpha = 0.42; ctx.globalCompositeOperation = 'multiply';
-    ctx.filter = 'blur(5px)';
+    { // the shadow falls on the keys only
+      const q = [[-10, 0], [KEYBOARD_W + 10, 0], [KEYBOARD_W + 10, 160], [-10, 160]].map(([x, y]) => cam.project([x, y, 0]));
+      ctx.beginPath(); q.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.closePath(); ctx.clip();
+    }
+    ctx.globalAlpha = 0.4; ctx.globalCompositeOperation = 'multiply';
+    ctx.filter = 'blur(6px)';
     ctx.drawImage(shadowCan, 0, 0, W, H);
     ctx.filter = 'none';
     ctx.restore();
+    drawContactShadows(ctx, cam, sk.L); drawContactShadows(ctx, cam, sk.R);
     const held = [];
     for (let j = lowerBound(notesByOn, t - 12, (n) => n.on); j < notesByOn.length && notesByOn[j].on <= t; j++) if (notesByOn[j].keyUp >= t) held.push(notesByOn[j]);
     drawEmbers(ctx, cam, t, held);
     drawImpacts(ctx, cam, t, notesByOn);
-    const order = sk.L.H.x < sk.R.H.x ? ['L', 'R'] : ['R', 'L'];
-    for (const h of order) drawHand(ctx, cam, sk[h]);
-    // the lamp light falls off along the arms
-    const dk = ctx.createLinearGradient(0, KEY_Y + 230, 0, H);
-    dk.addColorStop(0, 'rgba(12,7,4,0)'); dk.addColorStop(0.55, 'rgba(12,7,4,0.55)'); dk.addColorStop(1, 'rgba(12,7,4,0.85)');
-    ctx.fillStyle = dk; ctx.fillRect(0, KEY_Y + 230, W, H - KEY_Y - 230);
     drawFlyingGlyphs(ctx, cam, t, glyphNotes);
+    const order = cam.depth(sk.L.wrist) > cam.depth(sk.R.wrist) ? ['L', 'R'] : ['R', 'L'];
+    for (const h of order) handR.draw(ctx, cam, sk[h]);
     for (const s of shocks) if (t >= s.t && t < s.t + 1.2) drawFlash(ctx, W, H, W / 2, KEY_Y - 120, s.k * Math.exp(-(t - s.t) / 0.22), [255, 214, 150]);
     drawPedalLyre(ctx, W / 2, H - 92, pedalAt(pedalPts, t) * smoothstep((t - firstOn + 1) / 1), t);
-    for (const sec of perf.sections) drawSectionTitle(ctx, W, sec, t);
+    drawOpeningTitle(ctx, W, t);
+    for (const sec of perf.sections) if (sec.beat > 0) drawSectionTitle(ctx, W, sec, t);
     ctx.drawImage(overlay, 0, 0);
     ctx.restore();
     drawFilm(ctx, W, H, t, frame, plates);
-    // title & end cards with a silent-film iris
-    const titleA = 1 - smoothstep((t - 4.4) / 1.8);
-    drawTitleCard(ctx, W, H, t, cards, titleA);
-    const endA = smoothstep((t - (perf.musicEnd - 0.6)) / 1.6);
+    // closing card with a silent-film iris
+    const endA = smoothstep((t - (perf.musicEnd - 0.5)) / 1.0);
     drawEndCard(ctx, W, H, t, cards, endA, credit);
-    if (titleA > 0 || endA > 0) drawFilm(ctx, W, H, t, frame + 7, plates);
-    drawIris(ctx, W, H, Math.min(minjerk(t / 0.9), 1 - minjerk((t - (perf.duration - 1.1)) / 1.0)));
+    if (endA > 0) drawFilm(ctx, W, H, t, frame + 7, plates);
+    drawIris(ctx, W, H, Math.min(minjerk(t / 0.8), 1 - minjerk((t - (perf.duration - 0.8)) / 0.75)));
     return canvas;
   }
 

@@ -48,7 +48,7 @@ export function drawLanes(ctx, cam, view, t, bars, markings, fonts) {
     ctx.setLineDash([]);
   }
   // Bar lines with engraved numbers.
-  bars.forEach((bt, i) => {
+  bars.forEach(({ t: bt, num }) => {
     const s = (bt - t) * view.speed;
     if (s < 2 || s > sVis) return;
     const fade = (1 - smoothstep((s / sVis - 0.7) / 0.3)) * smoothstep(s / 40);
@@ -59,7 +59,7 @@ export function drawLanes(ctx, cam, view, t, bars, markings, fonts) {
     ctx.font = `italic ${(9 * np[3]).toFixed(1)}px "Old Standard TT"`;
     ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
     ctx.fillStyle = `rgba(226,190,120,${0.55 * fade})`;
-    ctx.fillText(String(i + 2), np[0], np[1]);
+    ctx.fillText(String(num), np[0], np[1]);
   });
   // Dynamic marks travelling with the music.
   for (const mk of markings) {

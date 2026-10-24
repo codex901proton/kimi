@@ -195,6 +195,27 @@ export function drawIris(ctx, W, H, k) {
   ctx.restore();
 }
 
+// Opening title over the scene while the first bells sound.
+export function drawOpeningTitle(ctx, W, t) {
+  const a = smoothstep((t - 0.4) / 0.9) * (1 - smoothstep((t - 6.2) / 1.4));
+  if (a <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 14;
+  ctx.fillStyle = GOLD(0.96);
+  ctx.font = '108px "Pinyon Script"';
+  ctx.fillText('Прелюдия', W / 2, 330 - 8 * (1 - a));
+  ctx.font = 'italic 50px "Old Standard TT"';
+  ctx.fillText('до-диез минор, соч. 3 № 2', W / 2, 400);
+  ctx.font = '40px "Playfair Display SC"';
+  ctx.fillText('Сергей Рахманинов · 1892', W / 2, 470);
+  ctx.shadowBlur = 0;
+  ctx.translate(W / 2, 510);
+  flourish(ctx, 220, GOLD(0.8), 1.6);
+  ctx.restore();
+}
+
 export function drawSectionTitle(ctx, W, sec, t) {
   const dt = t - sec.t;
   if (dt < -0.2 || dt > 4.2) return;

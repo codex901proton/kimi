@@ -117,13 +117,13 @@ export function drawFlyingGlyphs(ctx, cam, t, glyphNotes) {
     if (tau > life) continue;
     const C = HAND_COL[n.hand];
     const x = keyX(n.midi);
-    const v0 = [(rnd() - 0.5) * 240, -(380 + 260 * rnd()), 420 + 300 * rnd() * (0.5 + n.vel)];
+    const v0 = [(rnd() - 0.5) * 200, 260 + 220 * rnd(), 380 + 260 * rnd() * (0.5 + n.vel)];
     const p0 = hwPoint(x, 6, 12);
     const p = ballistic(p0, v0, 260, 0.55, tau);
     const seg = clipSegment(cam, p, p);
     if (!seg || cam.depth(p) < cam.near * 2) continue;
     const P = cam.project(p);
-    const size = (13 + 9 * rnd()) * (0.8 + 0.5 * n.vel) * P[3];
+    const size = (9 + 6 * rnd()) * (0.8 + 0.4 * n.vel) * P[3];
     if (size > 260) continue;
     const fade = Math.min(1, tau / 0.12) * (1 - tau / life) ** 1.3 * (1 - clamp((size - 120) / 140));
     const rot = (rnd() - 0.5) * 0.6 + (rnd() - 0.5) * 2.4 * tau;

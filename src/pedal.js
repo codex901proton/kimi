@@ -1,5 +1,5 @@
 // Sustain-pedal plan: legato (syncopated) pedal changes at harmonic changes, like a pianist.
-import { barBeat as B } from './score.js';
+import { barBeat as B, EDIT } from './score.js';
 
 const pcs = (ns) => new Set(ns.map((n) => n.midi % 12));
 function newClashes(held, fresh) {
@@ -35,7 +35,7 @@ export function planPedal(notes, timeMap, endTime) {
     const trig = group.filter(triggerRole);
     const fresh = pcs(group);
     const section = beat < B(15) ? 'lento' : beat < B(44) ? 'agitato' : 'primo';
-    const forced = [B(3), B(15), B(44), B(45), B(46), B(56), B(62)].includes(beat);
+    const forced = [B(3), B(15), B(44), B(45), B(46), B(56), B(62), ...EDIT.map((e) => e.b0)].includes(beat);
     if (trig.length && (forced || newClashes(sustained, pcs(trig)) > 0.9 || newClashes(sustained, fresh) > 2.5) && t - lastChange > 0.22) {
       changes.push({ t, section });
       lastChange = t;
@@ -51,9 +51,10 @@ export function planPedal(notes, timeMap, endTime) {
   for (const c of changes) {
     if (c.t < first + 0.05) continue;
     const depth = c.section === 'agitato' ? 0.18 : 0;     // half-pedal flutter keeps the bass ringing
-    const upDur = c.section === 'agitato' ? 0.035 : 0.05;
-    const hold = c.section === 'agitato' ? 0.05 : 0.07;
-    pts.push({ t: c.t - 0.012, v: 1 }, { t: c.t - 0.012 + upDur, v: depth }, { t: c.t + hold, v: depth }, { t: c.t + hold + 0.06, v: 1 });
+    const upDur = c.section === 'agitato' ? 0.035 : 0.04;
+    const hold = c.section === 'agitato' ? 0.05 : 0.045;
+    const down = c.section === 'agitato' ? 0.06 : 0.045;
+    pts.push({ t: c.t - 0.012, v: 1 }, { t: c.t - 0.012 + upDur, v: depth }, { t: c.t + hold, v: depth }, { t: c.t + hold + down, v: 1 });
   }
   pts.push({ t: endTime - 0.6, v: 1 }, { t: endTime - 0.2, v: 0 });
   pts.sort((a, b) => a.t - b.t);
