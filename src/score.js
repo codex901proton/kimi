@@ -9,9 +9,23 @@ export const LAST_BEAT = 246;
 export const barBeat = (bar) => (bar <= 1 ? 0 : 2 + 4 * (bar - 2));
 export const beatBar = (beat) => (beat < 2 ? 1 : 2 + Math.floor((beat - 2) / 4));
 
+// Abridged edit (~1½ min). Cuts are made where the music joins seamlessly:
+//  · bar 8 ends on the dominant G♯ → bar 28, the ff return of the Agitato in C♯ minor;
+//  · bar 30 is note-for-note bar 34, so 30 → 35 continues straight into the crescendo;
+//  · bar 47 → 54: both rest on the low C♯ bell, 54–55 is the great diminuendo;
+//  · bar 55 → 62: the final ppp chord under the fermata.
+export const EDIT = [
+  { from: 1, to: 8, tempo: 1.24, gap: 0 },
+  { from: 28, to: 30, tempo: 1.0, gap: 0.24 },
+  { from: 35, to: 47, tempo: 1.08, gap: 0 },
+  { from: 54, to: 55, tempo: 1.12, gap: 0.1 },
+  { from: 62, to: 62, tempo: 1.3, gap: 0.3 },
+].map((e) => ({ ...e, b0: barBeat(e.from), b1: e.to >= 62 ? 246 : barBeat(e.to + 1) }));
+export const inEdit = (beat) => EDIT.some((e) => beat >= e.b0 - 1e-9 && beat < e.b1 - 1e-9);
+
 export const SECTIONS = [
   { beat: 0, title: 'Lento', subtitle: '' },
-  { beat: barBeat(15), title: 'Agitato', subtitle: '' },
+  { beat: barBeat(28), title: 'Agitato', subtitle: '' },
   { beat: barBeat(44), title: 'Tempo primo', subtitle: 'pesante' },
 ];
 
@@ -56,7 +70,7 @@ const DYN = [
   [B(12), 0.17], [B(13), 0.13], [B(15) - 0.01, 0.12],
   [B(15), 0.46], [B(17), 0.5], [B(18), 0.6], [B(19), 0.46], [B(21), 0.47], [B(22), 0.52], [B(23), 0.62],
   [B(24), 0.6], [B(25), 0.46], [B(26), 0.5], [B(27) + 3.9, 0.68], [B(28), 0.74], [B(30) + 3.9, 0.74],
-  [B(31), 0.6], [B(32), 0.33], [B(34) + 3.9, 0.36], [B(35), 0.5], [B(36), 0.86], [B(42), 0.84],
+  [B(31), 0.6], [B(32), 0.33], [B(34) + 3.9, 0.36], [B(35), 0.64], [B(36), 0.86], [B(42), 0.84],
   [B(44) - 0.01, 0.86], [B(44), 0.9], [B(46), 0.88], [B(53) + 3.9, 0.88], [B(54), 0.78], [B(55), 0.56],
   [B(56) - 0.01, 0.44], [B(56), 0.46], [B(58), 0.4], [B(60), 0.32], [B(61), 0.26], [B(62), 0.15],
   [LAST_BEAT, 0.15],
@@ -79,52 +93,68 @@ function piecewise(points) {
 }
 
 export function buildTimeMap(startOffset) {
-  const bpm = piecewise(TEMPO);
+  const bpm0 = piecewise(TEMPO);
   const step = 1 / 192;
   const n = Math.ceil((LAST_BEAT + 8) / step) + 1;
-  const times = new Float64Array(n);
-  let t = startOffset;
+  const T = new Float64Array(n);      // unedited performance time of each beat step
+  let t = 0;
   for (let i = 0; i < n; i++) {
-    times[i] = t;
+    T[i] = t;
     const b = i * step + step / 2;
-    let dt = (60 / bpm(b)) * step;
+    let dt = (60 / bpm0(b)) * step;
     for (const [bb, extra] of BREATHS) {
       const w = 0.5;
-      if (b > bb - w && b < bb) {
-        // raised-cosine bump integrating to `extra` over the half beat before bb
-        const u = (b - (bb - w)) / w;
-        dt += extra * (1 - Math.cos(2 * Math.PI * u)) * (step / w);
-      }
+      if (b > bb - w && b < bb) dt += extra * (1 - Math.cos(2 * Math.PI * ((b - (bb - w)) / w))) * (step / w);
     }
     t += dt;
   }
+  const Torig = (beat) => {
+    const x = Math.max(0, beat) / step, i = Math.min(n - 2, Math.floor(x));
+    return T[i] + (T[i + 1] - T[i]) * (x - i);
+  };
+  let cursor = startOffset;
+  const segs = EDIT.map((e) => {
+    cursor += e.gap;
+    const seg = { ...e, start: cursor, dur: (Torig(e.b1) - Torig(e.b0)) / e.tempo };
+    cursor += seg.dur;
+    return seg;
+  });
+  const segOfBeat = (beat) => segs.find((g) => beat >= g.b0 - 1e-9 && beat <= g.b1 + 1e-9);
   const beatToTime = (beat) => {
-    const x = Math.max(0, beat) / step;
-    const i = Math.min(n - 2, Math.floor(x));
-    const f = x - i;
-    return times[i] + (times[i + 1] - times[i]) * f;
+    const g = segOfBeat(beat);
+    if (!g) return NaN;
+    return g.start + (Torig(beat) - Torig(g.b0)) / g.tempo;
   };
   const timeToBeat = (time) => {
-    if (time <= times[0]) return 0;
-    let lo = 0, hi = n - 1;
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (times[mid] <= time) lo = mid; else hi = mid; }
-    return (lo + (time - times[lo]) / (times[lo + 1] - times[lo])) * step;
+    let g = segs[0];
+    for (const s2 of segs) if (time >= s2.start - s2.gap) g = s2;
+    const target = Torig(g.b0) + Math.max(0, time - g.start) * g.tempo;
+    let lo = g.b0, hi = g.b1 + 8;
+    for (let k = 0; k < 40; k++) { const m = (lo + hi) / 2; if (Torig(m) < target) lo = m; else hi = m; }
+    return (lo + hi) / 2;
   };
-  return { beatToTime, timeToBeat, bpm };
+  const bpm = (beat) => bpm0(beat) * (segOfBeat(beat)?.tempo ?? 1);
+  return { beatToTime, timeToBeat, bpm, segs };
 }
 
 export function loadScore() {
   const midi = parseMidi(SCORE_MIDI);
   const D = midi.division;
-  return midiNotes(midi).map((n, i) => ({
-    id: i,
-    midi: n.midi,
-    track: n.track,
-    staff: ['', 'upA', 'upB', 'downA', 'downB'][n.track],
-    hand: n.track <= 2 ? 'R' : 'L',
-    beat: n.startTick / D,
-    endBeat: n.endTick / D,
-  }));
+  return midiNotes(midi)
+    .map((n, i) => ({
+      id: i,
+      midi: n.midi,
+      track: n.track,
+      staff: ['', 'upA', 'upB', 'downA', 'downB'][n.track],
+      hand: n.track <= 2 ? 'R' : 'L',
+      beat: n.startTick / D,
+      endBeat: n.endTick / D,
+    }))
+    .filter((n) => inEdit(n.beat))
+    .map((n) => {
+      const seg = EDIT.find((e) => n.beat >= e.b0 - 1e-9 && n.beat < e.b1);
+      return { ...n, endBeat: Math.min(n.endBeat, seg.b1) };
+    });
 }
 
 // Expressive velocities: score dynamics + role-based voicing + seeded humanisation.
