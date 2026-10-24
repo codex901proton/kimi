@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Code-generated vintage piano visualization of Rachmaninoff's Prelude in C-sharp minor, Op. 3 No. 2",
+  "description": "Code-generated vintage piano visualization of Rachmaninoff's Prelude in C-sharp minor, Op. 3 No. 2 (abridged, ~1.5 min)",
   "scripts": {
-    "render": "node src/main.js",
+    "render": "node src/main.js --workers 2",
     "preview": "node src/main.js --preview"
   },
   "engines": {
