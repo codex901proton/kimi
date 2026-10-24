@@ -1,0 +1,17 @@
+{
+  "name": "piano-nocturne-1892",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Code-generated vintage piano visualization of Rachmaninoff's Prelude in C-sharp minor, Op. 3 No. 2",
+  "scripts": {
+    "render": "node src/main.js",
+    "preview": "node src/main.js --preview"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.13"
+  }
+}
